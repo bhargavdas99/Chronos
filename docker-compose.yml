@@ -1,0 +1,90 @@
+version: '3.8'
+
+services:
+  # Primary Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: chronos-postgres
+    environment:
+      POSTGRES_USER: chronos_user
+      POSTGRES_PASSWORD: chronos_password
+      POSTGRES_DB: chronos_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chronos_user -d chronos_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Connection Pooler (Section 8 / Module 3 in your database roadmap)
+  pgbouncer:
+    image: edoburu/pgbouncer:latest
+    container_name: chronos-pgbouncer
+    environment:
+      DB_USER: chronos_user
+      DB_PASSWORD: chronos_password
+      DB_HOST: postgres
+      DB_NAME: chronos_db
+      AUTH_TYPE: scram-sha-256   # <-- FIX: Match Postgres 15 auth protocol
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: 100 # maximum connections accepted by pgbouncer from fastapi
+      DEFAULT_POOL_SIZE: 20  # maximum connections opened from pgbouncer to postgres
+    ports:
+      - "6432:5432"  # Host 6432 -> PgBouncer internal 5432
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # Task Queue Broker
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: chronos-rabbitmq
+    ports:
+      - "5672:5672"   # AMQP protocol
+      - "15672:15672" # Web Management Console
+    environment:
+      RABBITMQ_DEFAULT_USER: chronos
+      RABBITMQ_DEFAULT_PASS: chronos123
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+
+  # Event Streaming (Kafka + Zookeeper)
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.3.0
+    container_name: chronos-zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+
+  kafka:
+    image: confluentinc/cp-kafka:7.3.0
+    container_name: chronos-kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+
+  # API Gateway / Reverse Proxy
+  nginx:
+    image: nginx:alpine
+    container_name: chronos-nginx
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - postgres
+
+volumes:
+  postgres_data:
+  rabbitmq_data:
