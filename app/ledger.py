@@ -18,6 +18,7 @@ async def process_transaction(
         async with conn.transaction():
             
             # 1. Fetch account and LOCK THE ROW exclusively.
+            # NOTE: this is the Two Phase Locking to solve the double booking problem
             # Concurrent transactions targeting this user_id will BLOCK HERE
             # until this transaction commits or rolls back.
             account = await conn.fetchrow(
@@ -59,7 +60,13 @@ async def process_transaction(
             )
             
             # 4. Insert immutable audit trail entry
-            ref_uuid = uuid.UUID(reference_id) if reference_id else None
+            if isinstance(reference_id, str):
+                ref_uuid = uuid.UUID(reference_id)
+            elif isinstance(reference_id, uuid.UUID):
+                ref_uuid = reference_id
+            else:
+                ref_uuid = None
+
             entry_id = await conn.fetchval(
                 """
                 INSERT INTO ledger_entries (account_id, amount, entry_type, reference_id)

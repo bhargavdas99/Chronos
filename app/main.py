@@ -23,7 +23,7 @@ class TransactionRequest(BaseModel):
     user_id: str
     amount: Decimal = Field(gt=0)
     entry_type: str
-    reference_id: str | None = None
+    reference_id: uuid.UUID | None = None
 
 @app.post("/accounts", status_code=status.HTTP_201_CREATED)
 async def create_account(req: CreateAccountRequest):
