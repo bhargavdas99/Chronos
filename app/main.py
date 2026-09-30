@@ -1,11 +1,9 @@
 from fastapi import FastAPI, HTTPException, status
 from contextlib import asynccontextmanager
-from pydantic import BaseModel, Field
-from decimal import Decimal
-import uuid
 
 from app.db import init_db, close_db, get_pool
 from app.ledger import process_transaction
+from app.schemas import CreateAccountRequest, TransactionRequest
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -15,18 +13,9 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Chronos Financial Ledger Engine", lifespan=lifespan)
 
-class CreateAccountRequest(BaseModel):
-    user_id: str
-    initial_balance: Decimal = Field(ge=0, default=Decimal('0.0000'))
-
-class TransactionRequest(BaseModel):
-    user_id: str
-    amount: Decimal = Field(gt=0)
-    entry_type: str
-    reference_id: uuid.UUID | None = None
 
 @app.post("/accounts", status_code=status.HTTP_201_CREATED)
-async def create_account(req: CreateAccountRequest):
+async def create_account(request: CreateAccountRequest):
     pool = get_pool()
     async with pool.acquire() as conn:
         try:
@@ -36,7 +25,7 @@ async def create_account(req: CreateAccountRequest):
                 VALUES ($1, $2) 
                 RETURNING account_id, user_id, balance
                 """,
-                req.user_id, req.initial_balance
+                request.user_id, request.initial_balance
             )
             return {
                 "account_id": str(row["account_id"]),
@@ -47,18 +36,18 @@ async def create_account(req: CreateAccountRequest):
             raise HTTPException(status_code=400, detail=str(e))
 
 @app.post("/ledger/transaction")
-async def execute_transaction(req: TransactionRequest):
+async def execute_transaction(request: TransactionRequest):
     pool = get_pool()
     try:
         res = await process_transaction(
             pool=pool,
-            user_id=req.user_id,
-            amount=req.amount,
-            entry_type=req.entry_type,
-            reference_id=req.reference_id
+            user_id=request.user_id,
+            amount=request.amount,
+            entry_type=request.entry_type,
+            reference_id=request.reference_id
         )
         return res
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail="Internal Transaction Error: " + str(e))
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Internal Transaction Error: {str(e)}")

@@ -6,6 +6,7 @@ DATABASE_URL = os.getenv(
     "postgres://chronos_user:chronos_password@localhost:6432/chronos_db"
 )
 
+# pool of connections from FastAPI BE server to PgBouncer
 pool: asyncpg.Pool = None
 
 async def init_db():
