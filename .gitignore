@@ -33,6 +33,7 @@ __pycache__/
 .coverage
 htmlcov/
 *.log
+k6_test_files/
 
 # ==========================================
 # Docker & Database Volumes
