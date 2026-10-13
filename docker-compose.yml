@@ -12,7 +12,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U chronos_user -d chronos_db"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -28,11 +28,11 @@ services:
       DB_NAME: ${POSTGRES_DB}
       AUTH_TYPE: scram-sha-256
       POOL_MODE: transaction
-      #fastapi app -> pgbouncer
-      MAX_CLIENT_CONN: 100
-      # pgbouncer -> pg 
-      DEFAULT_POOL_SIZE: 20 # max connections
-      MIN_POOL_SIZE: 5 # keep these many connections warm to avoid connection overhead
+      # fastapi app -> pgbouncer
+      MAX_CLIENT_CONN: 1000
+      # pgbouncer -> pg
+      DEFAULT_POOL_SIZE: 100 # max connections
+      MIN_POOL_SIZE: 20 # keep these many connections warm to avoid connection overhead
     depends_on:
       postgres:
         condition: service_healthy
@@ -50,6 +50,7 @@ services:
       interval: 3s
       timeout: 3s
       retries: 5
+
   # API Gateway / Reverse Proxy
   nginx:
     image: nginx:alpine
@@ -63,6 +64,21 @@ services:
       - app-2
       - app-3
 
+  # Standalone Background Worker
+  worker:
+    build: .
+    container_name: chronos-worker
+    command: python worker.py
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
+      RABBITMQ_HOST: ${RABBITMQ_HOST}
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
   # Task Queue Broker
   rabbitmq:
     image: rabbitmq:3-management-alpine
@@ -75,6 +91,11 @@ services:
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   # Event Streaming (Apache Kafka in KRaft mode)
   kafka:
@@ -99,45 +120,99 @@ services:
   app-1:
     build: .
     container_name: chronos-app-1
+    volumes:
+      - .:/app # <-- This syncs your local folder into the container in real time
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload # <-- Added --reload
     environment:
       DATABASE_URL: ${DATABASE_URL}
       REDIS_URL: ${REDIS_URL}
       KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS}
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
+      RABBITMQ_HOST: ${RABBITMQ_HOST}
     depends_on:
       pgbouncer:
         condition: service_started
       redis:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+      rabbitmq:
         condition: service_healthy
 
   # FastAPI Worker Container 2
   app-2:
     build: .
     container_name: chronos-app-2
+    volumes:
+      - .:/app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     environment:
       DATABASE_URL: ${DATABASE_URL}
       REDIS_URL: ${REDIS_URL}
       KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS}
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
+      RABBITMQ_HOST: ${RABBITMQ_HOST}
     depends_on:
       pgbouncer:
         condition: service_started
       redis:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+      rabbitmq:
         condition: service_healthy
 
   # FastAPI Worker Container 3
   app-3:
     build: .
     container_name: chronos-app-3
+    volumes:
+      - .:/app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     environment:
       DATABASE_URL: ${DATABASE_URL}
       REDIS_URL: ${REDIS_URL}
       KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS}
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
+      RABBITMQ_HOST: ${RABBITMQ_HOST}
     depends_on:
       pgbouncer:
         condition: service_started
       redis:
         condition: service_healthy
+      kafka:
+        condition: service_started
+      rabbitmq:
+        condition: service_healthy
+  
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: chronos-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+  
+  grafana:
+    image: grafana/grafana:latest
+    container_name: chronos-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    depends_on:
+      - prometheus
+    volumes:
+      - grafana_data:/var/lib/grafana
 
 volumes:
   postgres_data:
   rabbitmq_data:
   redis_data:
+  grafana_data:

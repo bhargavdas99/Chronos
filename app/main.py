@@ -1,4 +1,5 @@
 import os
+import asyncio
 from typing import Optional
 from fastapi import FastAPI, HTTPException, Header, status
 from contextlib import asynccontextmanager
@@ -13,6 +14,9 @@ from app.idempotency import (
 )
 from app.ledger import process_transaction
 from app.schemas import CreateAccountRequest, TransactionRequest
+from app.kafka_producer import init_kafka, close_kafka, send_transaction_event
+from app.rabbitmq_producer import init_rabbitmq, close_rabbitmq, publish_receipt_task
+from prometheus_fastapi_instrumentator import Instrumentator
 
 
 @asynccontextmanager
@@ -20,12 +24,21 @@ async def lifespan(app: FastAPI):
     redis_url = os.getenv("REDIS_URL", "redis://redis:6379/0")
     await init_db()
     await init_redis(redis_url)
+    await init_kafka()
+    await init_rabbitmq()
     yield
+    await close_rabbitmq()
+    await close_kafka()
     await close_redis()
     await close_db()
 
 
 app = FastAPI(title="Chronos Financial Ledger Engine", lifespan=lifespan)
+
+# Initialize Prometheus instrumentator
+Instrumentator().instrument(app).expose(
+    app, endpoint="/metrics", include_in_schema=False
+)
 
 
 @app.post("/accounts", status_code=status.HTTP_201_CREATED)
@@ -66,9 +79,7 @@ async def execute_transaction(
         if cached_result:
             return cached_result
     except TimeoutError as e:
-        raise HTTPException(
-            status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail=str(e)
-        )
+        raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail=str(e))
 
     # 3. Primary thread executes the DB transaction
     try:
@@ -79,15 +90,37 @@ async def execute_transaction(
             entry_type=request.entry_type,
             reference_id=request.reference_id,
         )
+
+        # Save result for future idempotent callers
         await save_idempotency_result(idempotency_key, res)
+
+        # Non-blocking event streaming to Kafka
+        asyncio.create_task(
+            send_transaction_event(
+                account_id=res["account_id"],
+                user_id=request.user_id,
+                amount=request.amount,
+                entry_type=request.entry_type,
+                reference_id=request.reference_id,
+            )
+        )
+        # Non-blocking background task to RabbitMQ
+        asyncio.create_task(
+            publish_receipt_task(
+                account_id=res["account_id"],
+                user_id=request.user_id,
+                amount=request.amount,
+                entry_type=request.entry_type,
+                entry_id=res["entry_id"],
+            )
+        )
+
         return res
     except Exception as e:
         # Release lock so future requests with this key aren't stuck if DB fails
         await release_idempotency_lock(idempotency_key)
         if isinstance(e, ValueError):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
-            )
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Internal Transaction Error: {str(e)}",
@@ -97,17 +130,39 @@ async def execute_transaction(
 # Processing of Non-idempotent path [we separated this from idempotent path above.]
 async def _process_and_handle_errors(request: TransactionRequest):
     try:
-        return await process_transaction(
+        res = await process_transaction(
             pool=get_pool(),
             user_id=request.user_id,
             amount=request.amount,
             entry_type=request.entry_type,
             reference_id=request.reference_id,
         )
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+
+        # Non-blocking event streaming to Kafka
+        asyncio.create_task(
+            send_transaction_event(
+                account_id=res["account_id"],
+                user_id=request.user_id,
+                amount=request.amount,
+                entry_type=request.entry_type,
+                reference_id=request.reference_id,
+            )
         )
+
+        # Non-blocking background task to RabbitMQ
+        asyncio.create_task(
+            publish_receipt_task(
+                account_id=res["account_id"],
+                user_id=request.user_id,
+                amount=request.amount,
+                entry_type=request.entry_type,
+                entry_id=res["entry_id"],
+            )
+        )
+
+        return res
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

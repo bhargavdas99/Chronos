@@ -18,3 +18,5 @@ uvloop==0.22.1
 watchfiles==1.2.0
 websockets==17.1
 aiokafka==0.12.0
+aio-pika==9.4.1
+prometheus-fastapi-instrumentator==6.1.0

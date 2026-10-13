@@ -39,54 +39,66 @@ async def handle_idempotency(
         - If is_primary_executor is True: Execute DB logic and save result.
         - Raises TimeoutError/HTTPException if concurrent request takes too long.
     """
-    r = get_redis()
-    cache_key = f"idempotency:result:{key}"
-    lock_key = f"idempotency:lock:{key}"
+    try:
+        r = get_redis()
+        cache_key = f"idempotency:result:{key}"
+        lock_key = f"idempotency:lock:{key}"
 
-    # 1. Fast Path: Check if response is already cached
-    cached_val = await r.get(cache_key)
-    if cached_val:
-        return json.loads(cached_val), False
-
-    # 2. Acquire Atomic Distributed Lock (SETNX)
-    acquired = await r.set(lock_key, "PROCESSING", nx=True, ex=lock_ttl)
-
-    if acquired:
-        # Primary thread won the race! Proceed to execute DB transaction.
-        return None, True
-
-    # 3. Secondary Concurrent Requests: Poll until Primary completes
-    elapsed = 0.0
-    while elapsed < max_wait_seconds:
-        await asyncio.sleep(poll_interval)
-        elapsed += poll_interval
-
-        # Check if result was cached while waiting
+        # 1. Fast Path: Check if response is already cached
         cached_val = await r.get(cache_key)
         if cached_val:
             return json.loads(cached_val), False
 
-        # If lock disappeared without caching, primary failed -> acquire lock and retry
-        lock_exists = await r.exists(lock_key)
-        if not lock_exists:
-            acquired = await r.set(lock_key, "PROCESSING", nx=True, ex=lock_ttl)
-            if acquired:
-                return None, True
+        # 2. Acquire Atomic Distributed Lock (SETNX)
+        acquired = await r.set(lock_key, "PROCESSING", nx=True, ex=lock_ttl)
 
-    raise TimeoutError("Concurrent transaction timed out waiting for idempotency lock.")
+        if acquired:
+            # Primary thread won the race! Proceed to execute DB transaction.
+            return None, True
+
+        # 3. Secondary Concurrent Requests: Poll until Primary completes
+        elapsed = 0.0
+        while elapsed < max_wait_seconds:
+            await asyncio.sleep(poll_interval)
+            elapsed += poll_interval
+
+            # Check if result was cached while waiting
+            cached_val = await r.get(cache_key)
+            if cached_val:
+                return json.loads(cached_val), False
+
+            # If lock disappeared without caching, primary failed -> acquire lock and retry
+            lock_exists = await r.exists(lock_key)
+            if not lock_exists:
+                acquired = await r.set(lock_key, "PROCESSING", nx=True, ex=lock_ttl)
+                if acquired:
+                    return None, True
+
+        raise TimeoutError(
+            "Concurrent transaction timed out waiting for idempotency lock."
+        )
+
+    except Exception as e:
+        # Fail open: if Redis drops, bypass caching and process via database safely
+        print(f"Warning: Redis error during idempotency check, failing open: {e}")
+        return None, True
 
 
 async def save_idempotency_result(key: str, result: dict, ttl: int = 86400):
     """Saves the completed response and releases the in-flight lock."""
-    r = get_redis()
-    cache_key = f"idempotency:result:{key}"
-    lock_key = f"idempotency:lock:{key}"
+    try:
+        r = get_redis()
+        cache_key = f"idempotency:result:{key}"
+        lock_key = f"idempotency:lock:{key}"
 
-    # Cache response JSON and release processing lock atomically
-    async with r.pipeline(transaction=True) as pipe:
-        pipe.set(cache_key, json.dumps(result), ex=ttl)
-        pipe.delete(lock_key)
-        await pipe.execute()
+        # Cache response JSON and release processing lock atomically
+        async with r.pipeline(transaction=True) as pipe:
+            pipe.set(cache_key, json.dumps(result), ex=ttl)
+            pipe.delete(lock_key)
+            await pipe.execute()
+    except Exception as e:
+        # Log error but don't block the transaction response if Redis fails post-commit
+        print(f"Warning: Failed to save idempotency result to Redis: {e}")
 
 
 async def release_idempotency_lock(key: str):
