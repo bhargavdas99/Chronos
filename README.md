@@ -10,25 +10,25 @@ Chronos is engineered to handle heavy concurrent transaction workloads without s
 
 ```text
  [Client / k6 Load Tester]
-           │
-           ▼
+            │
+            ▼
      [ Nginx Load Balancer ]
-           │
-           ├─────────────────────────┬─────────────────────────┐
-           ▼                         ▼                         ▼
+            │
+            ├─────────────────────────┬─────────────────────────┐
+            ▼                         ▼                         ▼
      [ FastAPI App 1 ]         [ FastAPI App 2 ]         [ FastAPI App 3 ]
-           │                         │                         │
-           ├─────────────────────────┴─────────────────────────┤
-           ▼                                                   ▼
-     [ Redis (Idempotency Cache) ]                   [ PgBouncer Pooler ]
-     *(Fail-Open Graceful Degradation)*                        │
-                                                               ▼
-                                                      [ PostgreSQL 15 ]
-                                                               │
-                                          ┌────────────────────┴────────────────────┐
-                                          ▼                                         ▼
-                                   [ Apache Kafka ]                            [ RabbitMQ ]
-                                (Event Streaming / Log)                     (Async Background Tasks)
+            │                         │                         │
+            ├─────────────────────────┴─────────────────────────┤
+            ▼                                                   ▼
+     [ Redis (Idempotency Cache) ]                       [ PgBouncer Pooler ]
+     *(Fail-Open Graceful Degradation)*                         │
+                                                                ▼
+                                                        [ PostgreSQL 15 ]
+                                                                │
+                                         ┌──────────────────────┴────────────────────┐
+                                         ▼                                           ▼
+                                  [ Apache Kafka ]                            [ RabbitMQ ]
+                              (Event Streaming / Log)                    (Async Background Tasks)
 
 ```
 
@@ -40,9 +40,15 @@ Chronos has been stress-tested and validated under heavy concurrent loads using 
 
 ### Load Testing Results (k6)
 
-* **Peak Throughput:** Validated at **~200+ RPS** under continuous concurrent stress tests.
-* **Failure Rate:** **0% failure rate** under steady-state load; zero double-spending or race condition leakage.
-* **Tail Latency:** P99 latency tracking stays tightly bound under load thanks to connection pooling (`PgBouncer`) and efficient query paths.
+* **Peak Throughput:** Validated at **~190 - 300 RPS** under continuous concurrent stress tests spanning over 13,400+ total requests.
+
+
+* **Failure Rate:** **0.00% failure rate** under peak load; zero double-spending or race condition leakage.
+
+
+* **Latency & Threshold Performance:** Under maximum ramp-up saturation (300 concurrent VUs), the system sustained a median latency of ~8.87ms with a P95 of ~1.72s. While strict baseline thresholds experienced momentary tail latency saturation due to local container virtualization limits, the data invariants remained strictly intact with zero dropped or failed transactions.
+
+
 
 ### Resilience & Chaos Engineering
 
@@ -55,20 +61,19 @@ Financial systems must survive infrastructure failures gracefully. Chronos imple
 
 ## Core Engineering Decisions
 
-1. **Bypassing ORMs for Raw AsyncPG:**
+1. **Bypasting ORMs for Raw AsyncPG:**
+
 * Heavy ORMs can introduce hidden query overhead, opaque connection pooling behavior, and abstraction leaks when managing fine-grained transaction scopes.
 * Using **AsyncPG with raw SQL** gives direct control over transaction boundaries, query execution plans, and explicit row locking, ensuring maximum throughput for high-concurrency ledger writes.
 
-
 2. **Idempotency with Fail-Open Safety:**
+
 * Financial APIs require strict idempotency to prevent duplicate charges or transfers from client retries.
 * Chronos uses **Redis** to track request fingerprints and in-flight locks. To prevent cache outages from taking down the core banking service, a **fail-open try/except wrapper** ensures that if Redis goes down, transactions bypass the cache safely and hit PostgreSQL directly without returning 500 errors.
 
-
 3. **Transaction Pooling via PgBouncer:**
+
 * Direct high-concurrency connections can overwhelm PostgreSQL's connection limit. PgBouncer multiplexes client connections efficiently, preventing connection storms and keeping database memory footprints stable.
-
-
 
 ---
 
@@ -83,7 +88,7 @@ Get the entire containerized stack up and running in under 2 minutes.
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/your-username/chronos-ledger-engine.git
+git clone [https://github.com/bhargavdas99/Chronos.git](https://github.com/bhargavdas99/Chronos.git)
 cd chronos-ledger-engine
 
 ```
@@ -105,7 +110,7 @@ docker compose up --build -d
 
 ### 4. Run k6 Load Tests
 
-To stress-test the system and watch real-time P99 latency spikes on Grafana:
+To stress-test the system and track performance telemetry on Grafana:
 
 ```bash
 docker run --rm -i --net=host grafana/k6 run - < load_test_new.js
