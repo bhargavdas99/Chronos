@@ -36,19 +36,13 @@ Chronos is engineered to handle heavy concurrent transaction workloads without s
 
 ## Performance & Proof-of-Work
 
-Chronos has been stress-tested and validated under heavy concurrent loads using **k6**, backed by real-time metric collection via **Prometheus** and visualization via **Grafana**.
+Chronos has been stress-tested and validated under heavy concurrent loads using **k6** on Linux, backed by real-time metric collection via **Prometheus** and visualization via **Grafana**.
 
 ### Load Testing Results (k6)
 
-* **Peak Throughput:** Validated at **~190 - 300 RPS** under continuous concurrent stress tests spanning over 13,400+ total requests.
-
-
+* **Peak Throughput:** Validated at **~180 - 300 RPS** under continuous concurrent stress tests spanning over 12,600+ total requests.
 * **Failure Rate:** **0.00% failure rate** under peak load; zero double-spending or race condition leakage.
-
-
-* **Latency & Threshold Performance:** Under maximum ramp-up saturation (300 concurrent VUs), the system sustained a median latency of ~8.87ms with a P95 of ~1.72s. While strict baseline thresholds experienced momentary tail latency saturation due to local container virtualization limits, the data invariants remained strictly intact with zero dropped or failed transactions.
-
-
+* **Latency & Threshold Performance:** Under maximum ramp-up saturation (300 concurrent VUs competing for exclusive row-level locks on single accounts), the system sustained a median latency of ~186ms with a P95 of ~2.43s. While strict baseline thresholds experienced tail latency saturation due to database write-queue contention (`SELECT FOR UPDATE`), data invariants remained strictly intact with zero dropped or failed transactions.
 
 ### Resilience & Chaos Engineering
 
@@ -88,7 +82,7 @@ Get the entire containerized stack up and running in under 2 minutes.
 ### 1. Clone the Repository
 
 ```bash
-git clone [https://github.com/bhargavdas99/Chronos.git](https://github.com/bhargavdas99/Chronos.git)
+git clone [https://github.com/your-username/chronos-ledger-engine.git](https://github.com/your-username/chronos-ledger-engine.git)
 cd chronos-ledger-engine
 
 ```
