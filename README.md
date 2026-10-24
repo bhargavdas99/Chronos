@@ -58,17 +58,20 @@ Chronos is rigorously validated using **k6** across two distinct performance pro
 
 ### 1. Distributed Scale Profile (`k6_scripts/load_test_distributed.js`)
 
-Simulates a high-volume retail banking environment by partitioning writes across a pool of independent accounts to test raw throughput and connection pooling.
+Simulates a high-volume retail banking environment by partitioning writes across a pool of 50 independent accounts to benchmark raw throughput and connection pooling.
 
-* **Throughput:** Sustained ~200 RPS across 14,000+ total transactions.
-* **Tail Latency:** Achieved a blistering **p(95) of 16.48ms** and **p(99) of 22.45ms**.
-* **Failure Rate:** **0.00% failure rate** with 100% data integrity verified.
+- **Throughput:** Sustained ~201 RPS across 14,100+ transactions over 70 seconds.
+- **Tail Latency:** Achieved a median latency of **7.31ms**, with a **p(95) of 16.13ms** and **p(99) of 25.54ms**.
+- **Failure Rate:** **0.00% failure rate** (14,132/14,132 requests succeeded) with 100% check verification.
 
 ### 2. Hot-Row Contention Profile (`k6_scripts/load_test_contention.js`)
 
 Tests extreme concurrency limits against a single entity row (`usr_k6_stress_v2`) using row-level locks (`SELECT FOR UPDATE`).
 
-* **Data Safety:** Proves that even under fierce lock contention, database serialization successfully prevents race conditions, deadlocks, and double-spending with **0.00% data corruption**.
+- **Throughput:** Sustained ~199 RPS across 13,900+ transactions targeting the identical account row.
+- **Controlled Queueing:** Median response time stayed low at **6.44ms**, while row serialization deliberately shifted tail latencies (**p(95) of 881.65ms**, **p(99) of 1.57s**) as requests queued safely for the lock.
+- **Data Safety:** **0.00% failure rate** with 100% check pass rate (27,883/27,883 checks), proving zero race conditions, deadlocks, or double-spending under peak row contention.
+---
 
 ### Real-Time Observability (Grafana Dashboard)
 
@@ -82,19 +85,23 @@ Real-time metric collection via Prometheus visualized through Grafana during pea
 
 Financial systems must survive infrastructure failures gracefully. Chronos implements robust fault-tolerance mechanisms:
 
-1. **Fail-Open Idempotency:** If the Redis cache/locking layer experiences an outage, the idempotency layer catches the exception, logs a warning, and safely fails-open—allowing requests to process directly through the database without returning `500 Internal Server Errors` to clients.
+1. **Multi-Tiered Fail-Open Idempotency (Defense-in-Depth):**
+   - **Tier 1 (Redis Fast-Path Shield):** Traps >99% of duplicate requests and retries in sub-millisecond in-memory cache, short-circuiting before reaching the database.
+   - **Fail-Open Wrapper:** If Redis experiences an outage, high latency, or eviction pressure, Chronos gracefully degrades and routes execution directly to PostgreSQL, preventing cache failures from causing cascading HTTP 500 API outages.
+   - **Tier 2 (PostgreSQL Ground Truth Fallback):** Even with Redis offline, financial invariants remain strictly protected. PostgreSQL enforces idempotency via a `UNIQUE INDEX (idempotency_key)` on `ledger_entries` combined with atomic pre-execution lookups, ensuring zero duplicate balance mutations even during complete cache blackouts.
 2. **Seamless Load Balancer Failover:** Nginx load balances traffic across multiple FastAPI container replicas (`app-1`, `app-2`, `app-3`), ensuring zero downtime during individual container scaling or restarts.
 
 ---
 
 ## Core Engineering Decisions
 
-1. **Bypasting ORMs for Raw AsyncPG:**
+1. **Bypassing ORMs for Raw AsyncPG:**
 * Heavy ORMs introduce hidden query overhead and abstraction leaks when managing fine-grained transaction boundaries. Using **AsyncPG with raw SQL** gives direct control over transaction scopes, query execution plans, and explicit row locking.
 
 
-2. **Idempotency with Fail-Open Safety:**
-* Financial APIs require strict idempotency to prevent duplicate charges or transfers from client retries. Chronos uses **Redis** to track request fingerprints, paired with a fail-open wrapper to guarantee high availability even during cache degradation.
+2. **Dual-Tier Idempotency with Fail-Open Safety:**
+   - Financial APIs require strict idempotency to prevent duplicate charges or transfers from client retries. 
+   - Chronos avoids the single-point-of-failure trap of pure cache-based idempotency. It pairs **Redis distributed locking/caching** (for raw latency and connection shielding) with **PostgreSQL database-level constraints** (`UNIQUE` index and row validation). If the cache tier drops, the system sacrifices caching speed for 100% availability without sacrificing ledger consistency.
 
 
 3. **Transaction Pooling via PgBouncer:**

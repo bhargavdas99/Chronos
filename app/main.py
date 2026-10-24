@@ -1,4 +1,3 @@
-import os
 import asyncio
 from typing import Optional
 from fastapi import FastAPI, HTTPException, Header, status
@@ -93,6 +92,7 @@ async def execute_transaction(
             user_id=request.user_id,
             amount=request.amount,
             entry_type=request.entry_type,
+            idempotency_key=idempotency_key,
             reference_id=request.reference_id,
         )
 
