@@ -130,13 +130,24 @@ docker compose up --build -d
 
 ```
 
-### 3. Verify Health & Observability
+### 3. Initialize Database Schema
+
+Run the `schema.sql` script to create the required tables (`accounts`, `ledger_entries`) and performance indexes inside your PostgreSQL container:
+
+```bash
+docker exec -i chronos-postgres psql -U postgres -d chronos_db < schema.sql
+
+```
+
+*(Note: Replace `chronos-postgres`, `postgres`, and `chronos_db` with your actual container name, username, and database name from your environment configuration if they differ).*
+
+### 4. Verify Health & Observability
 
 * **API Gateway (Nginx):** `http://localhost/ledger/transaction`
 * **Prometheus UI:** `http://localhost:9090`
 * **Grafana Dashboards:** `http://localhost:3000` *(Default login: `admin` / `admin`)*
 
-### 4. Run k6 Load Tests
+### 5. Run k6 Load Tests
 
 **Run the Distributed Throughput Benchmark:**
 
