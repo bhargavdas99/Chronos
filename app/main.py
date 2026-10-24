@@ -4,24 +4,29 @@ from typing import Optional
 from fastapi import FastAPI, HTTPException, Header, status
 from contextlib import asynccontextmanager
 
-from app.db import init_db, close_db, get_pool
-from app.idempotency import (
+from app.core.db import init_db, close_db, get_pool
+from app.core.idempotency import (
     init_redis,
     close_redis,
     handle_idempotency,
     save_idempotency_result,
     release_idempotency_lock,
 )
-from app.ledger import process_transaction
-from app.schemas import CreateAccountRequest, TransactionRequest
-from app.kafka_producer import init_kafka, close_kafka, send_transaction_event
-from app.rabbitmq_producer import init_rabbitmq, close_rabbitmq, publish_receipt_task
+from app.api.ledger import process_transaction
+from app.api.schemas import CreateAccountRequest, TransactionRequest
+from app.messaging.kafka_producer import init_kafka, close_kafka, send_transaction_event
+from app.messaging.rabbitmq_producer import (
+    init_rabbitmq,
+    close_rabbitmq,
+    publish_receipt_task,
+)
 from prometheus_fastapi_instrumentator import Instrumentator
+from app.core.config import settings
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    redis_url = os.getenv("REDIS_URL", "redis://redis:6379/0")
+    redis_url = settings.REDIS_URL
     await init_db()
     await init_redis(redis_url)
     await init_kafka()

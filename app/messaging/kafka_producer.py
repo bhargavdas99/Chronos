@@ -3,13 +3,14 @@ import logging
 import os
 from typing import Optional
 from aiokafka import AIOKafkaProducer
+from app.core.config import settings
 
 logger = logging.getLogger("chronos.kafka")
 
 # Global singleton producer
 producer: Optional[AIOKafkaProducer] = None
 
-KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
+KAFKA_BOOTSTRAP_SERVERS = settings.KAFKA_BOOTSTRAP_SERVERS
 LEDGER_TOPIC = "ledger.transactions"
 
 

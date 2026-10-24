@@ -3,6 +3,7 @@ import logging
 import os
 from typing import Optional
 import aio_pika
+from app.core.config import settings
 
 logger = logging.getLogger("chronos.rabbitmq")
 
@@ -10,9 +11,9 @@ logger = logging.getLogger("chronos.rabbitmq")
 connection: Optional[aio_pika.RobustConnection] = None
 channel: Optional[aio_pika.RobustChannel] = None
 
-RABBITMQ_USER = os.getenv("RABBITMQ_DEFAULT_USER", "chronos")
-RABBITMQ_PASS = os.getenv("RABBITMQ_DEFAULT_PASS", "chronos123")
-RABBITMQ_HOST = os.getenv("RABBITMQ_HOST", "rabbitmq")
+RABBITMQ_USER = settings.RABBITMQ_DEFAULT_USER
+RABBITMQ_PASS = settings.RABBITMQ_DEFAULT_PASS
+RABBITMQ_HOST = settings.RABBITMQ_HOST
 RABBITMQ_URL = f"amqp://{RABBITMQ_USER}:{RABBITMQ_PASS}@{RABBITMQ_HOST}:5672/"
 
 QUEUE_NAME = "receipt_generation_queue"

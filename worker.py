@@ -5,6 +5,7 @@ import os
 import signal
 import sys
 import aio_pika
+from app.core.config import settings
 
 # Configure logging
 logging.basicConfig(
@@ -13,9 +14,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger("chronos.worker")
 
-RABBITMQ_USER = os.getenv("RABBITMQ_DEFAULT_USER", "chronos")
-RABBITMQ_PASS = os.getenv("RABBITMQ_DEFAULT_PASS", "chronos123")
-RABBITMQ_HOST = os.getenv("RABBITMQ_HOST", "rabbitmq")
+RABBITMQ_USER = settings.RABBITMQ_DEFAULT_USER
+RABBITMQ_PASS = settings.RABBITMQ_DEFAULT_PASS
+RABBITMQ_HOST = settings.RABBITMQ_HOST
 RABBITMQ_URL = f"amqp://{RABBITMQ_USER}:{RABBITMQ_PASS}@{RABBITMQ_HOST}:5672/"
 
 QUEUE_NAME = "receipt_generation_queue"

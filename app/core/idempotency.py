@@ -25,7 +25,6 @@ def get_redis() -> Redis:
 
 async def handle_idempotency(
     key: str,
-    ttl: int = 86400,  # Cache successful response for 24 hours
     lock_ttl: int = 10,  # In-flight lock expires in 10s if backend crashes
     poll_interval: float = 0.05,
     max_wait_seconds: float = 5.0,

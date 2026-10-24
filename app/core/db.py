@@ -1,9 +1,8 @@
 import asyncpg
 import os
+from app.core.config import settings
 
-DATABASE_URL = os.getenv(
-    "DATABASE_URL", "postgres://chronos_user:chronos_password@localhost:6432/chronos_db"
-)
+DATABASE_URL = settings.DATABASE_URL
 
 # pool of connections from FastAPI BE server to PgBouncer
 pool: asyncpg.Pool = None
