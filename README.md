@@ -21,9 +21,10 @@ Chronos is engineered to handle heavy concurrent transaction workloads without s
             ├─────────────────────────┴─────────────────────────┤
             ▼                                                   ▼
      [ Redis (Idempotency Cache) ]                       [ PgBouncer Pooler ]
-     *(Fail-Open Graceful Degradation)*                         │
+     *(Fail-Open Tier 1 Shield)*                                │
                                                                 ▼
                                                         [ PostgreSQL 15 ]
+                                                        *(Tier 2 Ground Truth)*
                                                                 │
                                          ┌──────────────────────┴────────────────────┐
                                          ▼                                           ▼
