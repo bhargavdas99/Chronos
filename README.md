@@ -70,6 +70,12 @@ Tests extreme concurrency limits against a single entity row (`usr_k6_stress_v2`
 
 * **Data Safety:** Proves that even under fierce lock contention, database serialization successfully prevents race conditions, deadlocks, and double-spending with **0.00% data corruption**.
 
+### Real-Time Observability (Grafana Dashboard)
+
+Real-time metric collection via Prometheus visualized through Grafana during peak load testing:
+
+![Chronos Grafana Production Metrics](./assets/grafana-metrics.png)
+
 ---
 
 ## Resilience & Chaos Engineering
